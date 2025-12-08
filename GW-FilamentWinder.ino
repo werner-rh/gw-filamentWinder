@@ -6,12 +6,14 @@
  * Created: 03.11.2025
  * Board: Arduino Nano
  * 
- * Description: This is the software part of the filament rewinder.
+ * Description: This is the software part of the filament rewinder, called "Pastamatic".
+ *              A cooperation of Gregor Trierscheid (mechanical parts) and Werner Riemann 
+ *              (software part and side movement concept).
  *              The main task is to control the side movement after each rotation
  *              of the filament spool. The movement has to be 1.75mm for each
- *              rotation. At the end of a layer, the direction of the rail movement
- *              is inverted and a new layer starts. The rail is driven with a Nema stepper
- *              at 800 micro steps per revolution.
+ *              rotation. At the end of a layer, the direction of the rail movement is
+ *              inverted and a new layer starts. The rail is driven with a Nema stepper
+ *              at 1600 micro steps per revolution.
  * 
  * Pins:
  * A0     - Digital IN endswitch left side
@@ -42,7 +44,7 @@
 #include "WRKeyStateDef.h"
 #include "NemaStepperLi.h"
 
-#define VERSION "1.00"
+#define VERSION "1.01"
 
 // inputs
 #define LEFT_ENDSWITCH_PIN A0
@@ -65,9 +67,9 @@
 #define TO_LEFTSIDE 0
 #define TO_RIGHTSIDE 1
 
-#define TWISTWIDTH_STEPS 70     // 70 x 0.025mm = 1.75mm
-#define SETUP_SPEED 6           // in mm/s
-#define RUN_SPEED 9             // in mm/s
+#define TWISTWIDTH_STEPS 70     // 70 x 0.025mm = 1.75mm - Nema17 in eighth step mode
+#define SETUP_SPEED 6           // speed of the side movement in mm/s for manually setup
+#define RUN_SPEED 9             // speed of the side movement in mm/s in auto run mode
 
 // application states
 #define APPSTATE_STARTUP 1
@@ -95,7 +97,7 @@ volatile unsigned long pulseCount = 0;
 
 // GT2 pulley circumference = number of teeth * division
 // using 20 teeth pulle: 20 * 2mm = 40mm
-// driver set to eight step = 1600 steps for one revolution.
+// driver set to eighth step = 1600 steps for one revolution.
 // for 1,75mm we need 70 steps. Each step moves 0.025mm
 NemaStepper railStepper(NEMA_DIRECTION_PIN, NEMA_PULSE_PIN, NEMA_SLEEP_PIN, 1600, 40);
 
@@ -110,7 +112,7 @@ SIGNAL(TIMER0_COMPA_vect) {
   }
 }
 
-// Interrupt Service Routine: Jedes Mal wenn ein Puls registriert wird
+// Interrupt Service Routine: Every time a pulse is registered
 void countPulse() {
   pulseCount++;
 }
@@ -138,12 +140,9 @@ void setup() {
   OCR0A = 0xAF;
   TIMSK0 |= _BV(OCIE0A);
 
-  // zum testen des ISR0 triggers
-  Serial.begin(115200);
-  Serial.println("Setup ISR0 on PIN2");
 }
 
-
+// use this function to start and stop the setup movement with a single button pressure
 void CheckDirectionButtons() {
   if (dirLeftButtonState == 1)  // move rail to left
   {
@@ -168,6 +167,7 @@ void CheckDirectionButtons() {
   }
 }
 
+// use this function for setup movement by press and hold the direction button
 void CheckDirectionAction() {
   if (dirLeftButtonState == 2 || dirRightButtonState == 2) {
     if (dirLeftButtonState == 2) {
@@ -217,6 +217,7 @@ void loop() {
     CheckKeyState(&dirLeftButtonState, DIR_LEFT_BUTTON_PIN);
     CheckKeyState(&dirRightButtonState, DIR_RIGHT_BUTTON_PIN);
 
+    // generate the signal for flashing green LED
     if (runToogleCount >= 50) {
       runBlinkToogle ^= 1;
 
@@ -267,11 +268,11 @@ void loop() {
 
         digitalWrite(GREEN_LED_PIN, runBlinkToogle);
 
-        noInterrupts();  // Interrupts temporär deaktivieren
+        noInterrupts();  // disable Interrupts 
         
         if(pulseCount >= 1) {
             railStepper.resetCurrentStepCount();
-            pulseCount = 0;  // Zähler zurücksetzen    
+            pulseCount = 0;  // reset pulse counter    
             
             if(skipPulse == false) {
               railStepper.setDirection(railDirection);     
@@ -283,9 +284,7 @@ void loop() {
           
         }
         
-        interrupts();    // Interrupts wieder aktivieren
-                         //Serial.print("Pulses counted: ");
-                         //Serial.println(pulses);
+        interrupts();    // enable Interrupts again
 
         if (startStopButtonState == 1) {
           digitalWrite(GREEN_LED_PIN, LOW);
@@ -317,7 +316,7 @@ void loop() {
           skipPulse = true;
         }
 
-        // Abbruch
+        // stop auto mode
         if (startStopButtonState == 1) {
           digitalWrite(GREEN_LED_PIN, LOW);
           digitalWrite(RED_LED_PIN, HIGH);
